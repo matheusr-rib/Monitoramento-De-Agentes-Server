@@ -14,7 +14,7 @@ coverage/
 *.tsbuildinfo
 
 ########################################
-# Next.js (apps/web)
+# Next.js
 ########################################
 
 .next/
@@ -23,7 +23,7 @@ out/
 .next/cache/
 
 ########################################
-# Environment variables
+# Environment / secrets
 ########################################
 
 .env
@@ -53,7 +53,7 @@ uploads/
 *.tmp
 
 ########################################
-# OS files
+# OS
 ########################################
 
 .DS_Store
@@ -61,7 +61,7 @@ Thumbs.db
 desktop.ini
 
 ########################################
-# IDE / Editor
+# IDE
 ########################################
 
 .vscode/
@@ -70,7 +70,7 @@ desktop.ini
 *.swo
 
 ########################################
-# Docker
+# Docker local data
 ########################################
 
 docker-data/
@@ -80,16 +80,12 @@ docker-volumes/
 *.pid.lock
 
 ########################################
-# Postgres local dump / backups
+# Database artifacts
 ########################################
 
 *.sql
 *.dump
 *.backup
-
-# SQLs de recuperacao precisam permanecer versionados
-!recovery/historico_jan_jun/importar_historico.sql
-!recovery/historico_jan_jun/validar_historico.sql
 
 ########################################
 # Sequelize
@@ -98,7 +94,7 @@ docker-volumes/
 sequelize-debug.log
 
 ########################################
-# Misc
+# Archives
 ########################################
 
 *.zip
@@ -107,8 +103,22 @@ sequelize-debug.log
 *.rar
 
 ########################################
-# Test artifacts
+# Tests
 ########################################
 
 jest-cache/
 *.lcov
+
+########################################
+# RECOVERY
+#
+# IMPORTANTE:
+# recovery/ é parte do pacote de restauração
+# e deve ser integralmente versionado.
+#
+# Estas regras devem permanecer NO FINAL
+# para sobrescrever os ignores acima.
+########################################
+
+!recovery/
+!recovery/**
