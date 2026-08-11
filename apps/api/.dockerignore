@@ -1,0 +1,9 @@
+node_modules
+npm-debug.log*
+dist
+coverage
+.env
+.env.*
+.npmrc
+*.log
+backup_score_db.dump

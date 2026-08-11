@@ -1,0 +1,179 @@
+name: score-admin
+
+services:
+  db:
+    image: postgres:15
+    container_name: score-db
+    environment:
+      POSTGRES_DB: ${PGDATABASE}
+      POSTGRES_USER: ${PGUSER}
+      POSTGRES_PASSWORD: ${PGPASSWORD}
+    ports:
+      - "${SERVER_BIND_IP}:${PGPORT}:5432"
+    volumes:
+      - score_pgdata:/var/lib/postgresql/data
+    networks:
+      - score_admin_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PGUSER} -d ${PGDATABASE}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    container_name: score-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${CORS_ORIGINS}
+    ports:
+      - "${SERVER_BIND_IP}:${MINIO_API_PORT}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT}:9001"
+    volumes:
+      - score_minio_data:/data
+    networks:
+      - score_admin_net
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: score-minio-init
+    depends_on:
+      minio:
+        condition: service_started
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      S3_BUCKET: ${S3_BUCKET}
+    entrypoint: ["sh", "-lc"]
+    command: >
+      "
+      until mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\"; do
+        echo 'waiting for minio...'; sleep 2;
+      done;
+
+      mc mb -p \"local/$$S3_BUCKET\" || true;
+      echo 'minio ready';
+      "
+    networks:
+      - score_admin_net
+    restart: "no"
+
+  bootstrap:
+    container_name: score-bootstrap
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+      target: build
+      secrets:
+        - github_token
+    working_dir: /app
+    environment:
+      NODE_ENV: production
+      PGHOST: db
+      PGPORT: 5432
+      PGDATABASE: ${PGDATABASE}
+      PGUSER: ${PGUSER}
+      PGPASSWORD: ${PGPASSWORD}
+      BOOTSTRAP_SEED_IF_EMPTY: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: ["sh", "-lc"]
+    command: ["chmod +x ./scripts/bootstrap.sh && ./scripts/bootstrap.sh"]
+    networks:
+      - score_admin_net
+    restart: "no"
+
+  api:
+    container_name: score-api
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+      secrets:
+        - github_token
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+      AUTH_INTEGRATION_URL: ${AUTH_INTEGRATION_URL:-}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+
+      PGHOST: db
+      PGPORT: 5432
+      PGDATABASE: ${PGDATABASE}
+      PGUSER: ${PGUSER}
+      PGPASSWORD: ${PGPASSWORD}
+      PGSSL: "false"
+
+      CLICKSIGN_ACCESS_TOKEN: ${CLICKSIGN_ACCESS_TOKEN:-}
+      CLICKSIGN_BASE_URL: ${CLICKSIGN_BASE_URL:-https://app.clicksign.com}
+
+      WORKBANK_API_URL: ${WORKBANK_API_URL:-}
+      WORKBANK_TIMEOUT_SECONDS: ${WORKBANK_TIMEOUT_SECONDS:-50}
+
+      S3_INTERNAL_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT}
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_FORCE_PATH_STYLE: "true"
+    ports:
+      - "${SERVER_BIND_IP}:${API_PORT}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
+      bootstrap:
+        condition: service_completed_successfully
+    networks:
+      - score_admin_net
+    restart: unless-stopped
+    command: ["node", "dist/index.js"]
+
+  web:
+    container_name: score-web
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE}
+        NEXT_PUBLIC_ADMIN_TOKEN: ${ADMIN_TOKEN}
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE}
+      NEXT_PUBLIC_ADMIN_TOKEN: ${ADMIN_TOKEN}
+    ports:
+      - "${SERVER_BIND_IP}:${WEB_PORT}:3001"
+    depends_on:
+      api:
+        condition: service_started
+    networks:
+      - score_admin_net
+    restart: unless-stopped
+
+volumes:
+  score_pgdata:
+    external: true
+    name: score_pgdata
+  score_minio_data:
+    external: true
+    name: score_minio_data
+
+networks:
+  score_admin_net:
+    external: true
+    name: score_admin_net
+
+secrets:
+  github_token:
+    file: ${GITHUB_TOKEN_FILE:-.secrets/github_token}
